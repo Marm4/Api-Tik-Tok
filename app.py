@@ -7,19 +7,6 @@ app = Flask(__name__)
 DOWNLOAD_FOLDER = "downloads"
 os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)  # Crea la carpeta si no existe
 
-@app.route('/ffmpeg-check')
-def ffmpeg_check():
-    import subprocess
-    try:
-        ffmpeg_path = subprocess.check_output(["which", "ffmpeg"], text=True).strip()
-        version = subprocess.check_output([ffmpeg_path, "-version"], text=True)
-        return f"""
-        <h3>✅ FFmpeg instalado correctamente</h3>
-        <pre>Path: {ffmpeg_path}\n{version.splitlines()[0]}</pre>
-        """
-    except Exception as e:
-        return f"❌ Error: {str(e)}"
-
 @app.route('/descargar', methods=['POST'])
 def download_audio():
     data = request.get_json()
@@ -32,6 +19,7 @@ def download_audio():
         # Opciones para descargar solo el audio
         ydl_opts = {
             'format': 'bestaudio/best',
+            'ffmpeg_location': '/usr/bin/ffmpeg',
             'outtmpl': os.path.join(DOWNLOAD_FOLDER, '%(title)s.%(ext)s'),
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
