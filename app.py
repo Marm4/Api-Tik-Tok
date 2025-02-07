@@ -32,11 +32,15 @@ def download_audio():
             filename = f"{info['title']}.m4a"  # Cambiar extensión a m4a
             file_path = os.path.join(DOWNLOAD_FOLDER, filename)
 
-        # Enviar el archivo y eliminarlo después
-        response = send_file(file_path, as_attachment=True, mimetype="audio/mp4")
-        os.remove(file_path)  # Borra el archivo después de enviarlo
+        @after_this_request
+        def remove_file(response):
+            try:
+                os.remove(file_path)
+            except Exception as e:
+                app.logger.error("Error al eliminar el archivo", exc_info=e)
+            return response
 
-        return response
+        return send_file(file_path, as_attachment=True, mimetype="audio/mp4")
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
