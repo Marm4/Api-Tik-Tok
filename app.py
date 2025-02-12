@@ -1,11 +1,16 @@
 from flask import Flask, request, send_file, jsonify, after_this_request
 import yt_dlp
 import os
+import re
 
 app = Flask(__name__)
 
 DOWNLOAD_FOLDER = "downloads"
 os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)  # Crea la carpeta si no existe
+
+def sanitize_filename(filename):
+    # Elimina caracteres no permitidos en nombres de archivo
+    return re.sub(r'[<>:"/\\|?*]', '', filename)
 
 @app.route('/descargar', methods=['POST'])
 def download_audio():
@@ -26,26 +31,29 @@ def download_audio():
                 'preferredcodec': 'mp3',
                 'preferredquality': '192',
             }],
+            'verbose': True,  # Habilita logs detallados
         }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
-            filename = f"{info['title']}.mp3"
+            filename = sanitize_filename(f"{info['title']}.mp3")
             file_path = os.path.join(DOWNLOAD_FOLDER, filename)
 
         @after_this_request
         def remove_file(response):
             try:
-                os.remove(file_path)
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+                else:
+                    app.logger.error(f"El archivo {file_path} no existe.")
             except Exception as e:
                 app.logger.error("Error al eliminar el archivo", exc_info=e)
             return response
 
-        return send_file(file_path, as_attachment=True, mimetype="audio/mp4")
+        return send_file(file_path, as_attachment=True, mimetype="audio/mp3")
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000)
-
