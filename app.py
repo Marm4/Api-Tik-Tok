@@ -9,8 +9,10 @@ DOWNLOAD_FOLDER = "downloads"
 os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)  # Crea la carpeta si no existe
 
 def sanitize_filename(filename):
-    # Elimina caracteres no permitidos en nombres de archivo
-    return re.sub(r'[<>:"/\\|?*]', '', filename)
+    # Elimina caracteres no permitidos y caracteres no ASCII
+    filename = re.sub(r'[<>:"/\\|?*]', '', filename)  # Caracteres no permitidos
+    filename = filename.encode('ascii', 'ignore').decode('ascii')  # Elimina caracteres no ASCII
+    return filename
 
 @app.route('/descargar', methods=['POST'])
 def download_audio():
@@ -32,12 +34,18 @@ def download_audio():
                 'preferredquality': '192',
             }],
             'verbose': True,  # Habilita logs detallados
+            'keepvideo': True,  # Evita eliminar el archivo original
+            'logger': app.logger,  # Usa el logger de Flask para capturar logs de yt-dlp
         }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
             filename = sanitize_filename(f"{info['title']}.mp3")
             file_path = os.path.join(DOWNLOAD_FOLDER, filename)
+
+        # Verifica si el archivo MP3 existe antes de enviarlo
+        if not os.path.exists(file_path):
+            return jsonify({"error": "El archivo MP3 no se creó correctamente."}), 500
 
         @after_this_request
         def remove_file(response):
