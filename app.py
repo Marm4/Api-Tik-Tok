@@ -1,79 +1,63 @@
-from flask import Flask, request, send_file, jsonify
+from flask import Flask, request, send_file, jsonify, after_this_request
 import yt_dlp
 import os
 
 app = Flask(__name__)
 
-def download_audio(url):
-    # Directorio de descargas
-    download_dir = 'downloads'
-    if not os.path.exists(download_dir):
-        os.makedirs(download_dir)
+DOWNLOAD_FOLDER = "downloads"
+os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)  # Crea la carpeta si no existe
 
-    # Opciones de descarga
-    ydl_opts = {
-        'format': 'bestaudio/best',  # Selecciona el mejor formato de audio disponible
-        'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '192',
-        }],
-        'outtmpl': f'{download_dir}/%(title)s.%(ext)s',
-        'restrictfilenames': True,  # Evita caracteres problemáticos en el nombre del archivo
-    }
-
-    try:
-        # Debug: URL recibida
-        app.logger.debug(f"[DEBUG] URL recibida: {url}")
-
-        # Intento de descarga
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            # Debug: Información del video
-            app.logger.debug(f"[DEBUG] Información del video: {info}")
-
-            # Obtener nombre del archivo descargado
-            file_title = info.get('title', None)
-            file_ext = ydl_opts['postprocessors'][0]['preferredcodec']
-            file_name = f"{file_title}.{file_ext}"
-            file_path = os.path.join(download_dir, file_name)
-
-            # Debug: Ruta del archivo
-            app.logger.debug(f"[DEBUG] Ruta del archivo descargado: {file_path}")
-
-            # Verificar si el archivo existe
-            if not os.path.exists(file_path):
-                app.logger.error(f"[ERROR] Archivo no encontrado: {file_path}")
-                return None
-
-            return file_path
-
-    except yt_dlp.utils.DownloadError as e:
-        app.logger.error("[ERROR] Error en la descarga: " + str(e))
-    except Exception as e:
-        app.logger.error("[ERROR] Error durante la descarga o procesamiento del audio")
-        app.logger.error(str(e))
-    
-    return None
-
+def sanitize_name(name):
+    """ Utiliza la función interna de yt-dlp para limpiar el nombre del archivo """
+    return yt_dlp.utils.sanitize_filename(name)
 
 @app.route('/descargar', methods=['POST'])
-def descargar():
-    url = request.form.get('url')
-
-    # Debug: URL del formulario
-    app.logger.debug(f"[DEBUG] URL del formulario: {url}")
+def download_audio():
+    data = request.get_json()
+    url = data.get("url")
 
     if not url:
-        return jsonify({'error': 'No se proporcionó una URL'}), 400
+        return jsonify({"error": "Falta la URL"}), 400
 
-    file_path = download_audio(url)
+    try:
+        # Opciones para descargar solo el audio
+        ydl_opts = {
+            'format': 'bestaudio/best',
+            'ffmpeg_location': '/usr/bin/ffmpeg',
+            'outtmpl': os.path.join(DOWNLOAD_FOLDER, '%(title)s.%(ext)s'),
+            'postprocessors': [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+                'preferredquality': '192',
+            }],
+        }
 
-    if file_path:
-        return send_file(file_path, as_attachment=True)
-    else:
-        return jsonify({'error': 'No se pudo descargar el audio'}), 500
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
 
+            # Sanear el nombre del archivo
+            sanitized_title = sanitize_name(info['title'])
+            filename = f"{sanitized_title}.mp3"
+            file_path = os.path.join(DOWNLOAD_FOLDER, filename)
+
+        @after_this_request
+        def remove_file(response):
+            try:
+                os.remove(file_path)
+            except Exception as e:
+                app.logger.error("Error al eliminar el archivo", exc_info=e)
+            return response
+
+        # Verifica si el archivo existe antes de enviarlo
+        if os.path.exists(file_path):
+            return send_file(file_path, as_attachment=True, mimetype="audio/mp3")
+        else:
+            app.logger.error(f"Archivo no encontrado: {file_path}")
+            return jsonify({"error": "No se pudo encontrar el archivo"}), 404
+
+    except Exception as e:
+        app.logger.error("Error durante la descarga o procesamiento del audio", exc_info=e)
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000)
