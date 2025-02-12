@@ -26,9 +26,24 @@ def download_audio():
         return jsonify({"error": "Falta la URL"}), 400
 
     try:
-        # Opciones de yt_dlp para forzar formatos compatibles y extraer solo audio
+        # Opciones iniciales para listar formatos disponibles
+        ydl_opts_list = {
+            'listformats': True,
+            'logger': app.logger,
+        }
+
+        app.logger.debug(f"Listando formatos disponibles para URL: {url}")
+        
+        # Listar formatos disponibles
+        with yt_dlp.YoutubeDL(ydl_opts_list) as ydl:
+            info = ydl.extract_info(url, download=False)
+            formats = info.get('formats', [])
+            available_formats = [f"{f['format_id']} - {f['ext']} - {f['acodec']}" for f in formats]
+            app.logger.debug(f"Formatos disponibles: {available_formats}")
+
+        # Opciones para descargar el mejor audio disponible
         ydl_opts = {
-            'format': 'bestaudio[ext=opus]/bestaudio[ext=m4a]/bestaudio',
+            'format': 'bestaudio/best',
             'ffmpeg_location': '/usr/bin/ffmpeg',
             'outtmpl': os.path.join(DOWNLOAD_FOLDER, '%(title)s.%(ext)s'),
             'postprocessors': [{
@@ -36,8 +51,7 @@ def download_audio():
                 'preferredcodec': 'mp3',
                 'preferredquality': '192',
             }],
-            'logger': app.logger,  # Para ver los logs detallados de yt_dlp
-            'progress_hooks': [lambda d: app.logger.debug(f"Progreso de descarga: {d}")],
+            'logger': app.logger,
         }
 
         app.logger.debug(f"Iniciando descarga para URL: {url}")
@@ -61,7 +75,7 @@ def download_audio():
             file_size = os.path.getsize(file_path)
             app.logger.debug(f"Tamaño del archivo: {file_size} bytes")
 
-            if file_size < 100:  # Si el archivo es menor a 100 bytes, probablemente está dañado
+            if file_size < 100:
                 app.logger.error("El archivo descargado parece estar corrupto.")
                 return jsonify({"error": "El archivo descargado parece estar corrupto"}), 500
 
